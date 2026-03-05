@@ -285,6 +285,46 @@ class _DFTracerAI:
                     ).value()
         return self
 
+    def update_args(self, args: Dict[str, Any]) -> "_DFTracerAI":
+        """Update event arguments during span execution (e.g., token usage from LLM response).
+
+        This method allows adding or updating args after __enter__ but before __exit__,
+        which is useful for capturing metrics from API responses (like token counts).
+
+        Args:
+            args: Dictionary of argument names to values. Int, float, and str types are supported.
+
+        Returns:
+            self for chaining.
+
+        Example:
+            with llm.call(args={"model": "gpt-4"}) as span:
+                response = api.call()
+                span.update_args({
+                    "prompt_tokens": response["usage"]["prompt_tokens"],
+                    "completion_tokens": response["usage"]["completion_tokens"],
+                })
+        """
+        if DFTRACER_ENABLE and self.profiler._enable:
+            for key, value in args.items():
+                if isinstance(value, TagValue):
+                    new_value = value._value
+                else:
+                    new_value = value
+                if isinstance(new_value, int):
+                    self.profiler._arguments_int[key] = TagValue(
+                        new_value, TagDType.INT, TagType.KEY
+                    ).value()
+                elif isinstance(new_value, float):
+                    self.profiler._arguments_float[key] = TagValue(
+                        new_value, TagDType.FLOAT, TagType.KEY
+                    ).value()
+                else:
+                    self.profiler._arguments_string[key] = TagValue(
+                        str(new_value), TagDType.STRING, TagType.KEY
+                    ).value()
+        return self
+
     def iter(
         self,
         iterator: Iterator,

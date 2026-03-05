@@ -53,6 +53,14 @@ OPERATION_KIND_KEY = "operation_kind"
 SUCCESS_KEY = "success"
 ERROR_TYPE_KEY = "error_type"
 
+# Token usage tracking keys for LLM calls
+PROMPT_TOKENS_KEY = "prompt_tokens"
+COMPLETION_TOKENS_KEY = "completion_tokens"
+TOTAL_TOKENS_KEY = "total_tokens"
+CONTEXT_SIZE_KEY = "context_size"
+CONTEXT_WINDOW_KEY = "context_window"
+CONTEXT_UTILIZATION_KEY = "context_utilization"
+
 
 class AgentCategory(StringEnum):
     WORKFLOW = auto()
@@ -375,6 +383,12 @@ __all__ = [
     "OPERATION_KIND_KEY",
     "SUCCESS_KEY",
     "ERROR_TYPE_KEY",
+    "PROMPT_TOKENS_KEY",
+    "COMPLETION_TOKENS_KEY",
+    "TOTAL_TOKENS_KEY",
+    "CONTEXT_SIZE_KEY",
+    "CONTEXT_WINDOW_KEY",
+    "CONTEXT_UTILIZATION_KEY",
     "AgentCategory",
     "WorkflowEvent",
     "AgentStepEvent",
