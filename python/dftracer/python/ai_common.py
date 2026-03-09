@@ -123,44 +123,16 @@ class _DFTracerAI:
         image_size: Optional[Any] = None,
         args: Optional[Dict[str, Any]] = None,
     ) -> Union[Callable[P, R], "DFTracerAI"]:
-        if epoch is not None:
-            self.profiler._arguments_int["epoch"] = TagValue(
-                epoch, TagDType.INT, TagType.KEY
-            ).value()
-        if step is not None:
-            self.profiler._arguments_int["step"] = TagValue(
-                step, TagDType.INT, TagType.KEY
-            ).value()
-        if image_idx is not None:
-            self.profiler._arguments_int["image_idx"] = TagValue(
-                image_idx, TagDType.INT, TagType.KEY
-            ).value()
-        if image_size is not None:
-            self.profiler._arguments_float["image_size"] = TagValue(
-                image_size, TagDType.FLOAT, TagType.KEY
-            ).value()
-        args = args or {}
-        for key, value in args.items():
-            if isinstance(value, TagValue):
-                new_value = value._value
-            else:
-                new_value = value
-            if isinstance(new_value, int):
-                self.profiler._arguments_int[key] = TagValue(
-                    new_value, TagDType.INT, TagType.KEY
-                ).value()
-            elif isinstance(new_value, float):
-                self.profiler._arguments_float[key] = TagValue(
-                    new_value, TagDType.FLOAT, TagType.KEY
-                ).value()
-            else:
-                self.profiler._arguments_string[key] = TagValue(
-                    str(new_value), TagDType.STRING, TagType.KEY
-                ).value()
-
         is_enabled = self.profiler._enable if enable is None else enable
 
         if fn:
+            self.update(
+                epoch=epoch,
+                step=step,
+                image_idx=image_idx,
+                image_size=image_size,
+                args=args,
+            )
 
             def _decorator(f: Callable[P, R]) -> Callable[P, R]:
                 @functools.wraps(f)
@@ -174,15 +146,23 @@ class _DFTracerAI:
 
             return _decorator(fn)
         else:
-            return DFTracerAI(
+            tracer = DFTracerAI(
                 cat=self.profiler._cat,
                 name=self.profiler._name,
+                enable=is_enabled,
+            )
+            if DFTRACER_ENABLE and tracer.profiler._enable:
+                tracer.profiler._arguments_int = dict(self.profiler._arguments_int)
+                tracer.profiler._arguments_float = dict(self.profiler._arguments_float)
+                tracer.profiler._arguments_string = dict(self.profiler._arguments_string)
+            tracer.update(
                 epoch=epoch,
                 step=step,
                 image_idx=image_idx,
                 image_size=image_size,
-                enable=is_enabled,
+                args=args,
             )
+            return tracer
 
     def __enter__(self) -> "_DFTracerAI":
         self.profiler.__enter__()

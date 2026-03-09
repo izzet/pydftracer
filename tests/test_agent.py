@@ -1,8 +1,14 @@
+import glob
+import gzip
+import json
+import os
+import shutil
 from typing import List
 
 from dftracer.python import (
     AGENT_ID_KEY,
     AGENT_ROLE_KEY,
+    COMPLETION_TOKENS_KEY,
     ERROR_TYPE_KEY,
     FORMAT_KEY,
     FRAMEWORK_KEY,
@@ -14,12 +20,14 @@ from dftracer.python import (
     OPERATION_KIND_KEY,
     PARENT_SPAN_ID_KEY,
     PHYSICAL_PATH_KEY,
+    PROMPT_TOKENS_KEY,
     RUN_ID_KEY,
     SPAN_ID_KEY,
     STEP_ID_KEY,
     SUCCESS_KEY,
     TOOL_CALL_ID_KEY,
     TRACE_ID_KEY,
+    TOTAL_TOKENS_KEY,
     WORKFLOW_ID_KEY,
     Agent,
     AgentCategory,
@@ -48,6 +56,80 @@ from dftracer.python import (
 from dftracer.python import (
     data as ai_data,
 )
+from dftracer.python import dftracer
+
+from .utils import run_test_in_spawn_process
+
+
+def run_agent_trace_args_test(test_config):
+    base_dir = os.path.join(os.path.dirname(__file__), "test_agent_output")
+    test_base_dir = os.path.join(base_dir, test_config["name"])
+    os.makedirs(test_base_dir, exist_ok=True)
+    log_file = os.path.join(test_base_dir, "agent_trace.pfw")
+
+    try:
+        df_logger = dftracer.initialize_log(log_file, None, -1)
+        with workflow.run(
+            args={
+                TRACE_ID_KEY: "trace-1",
+                WORKFLOW_ID_KEY: "workflow-1",
+                OPERATION_KIND_KEY: "workflow",
+            }
+        ):
+            with tool.call(
+                args={
+                    TRACE_ID_KEY: "trace-1",
+                    WORKFLOW_ID_KEY: "workflow-1",
+                    OPERATION_KIND_KEY: "tool_call",
+                    "tool_name": "list_dir",
+                }
+            ):
+                pass
+            with llm.call(
+                args={
+                    TRACE_ID_KEY: "trace-1",
+                    WORKFLOW_ID_KEY: "workflow-1",
+                    MODEL_NAME_KEY: "test-model",
+                    OPERATION_KIND_KEY: "generate",
+                }
+            ) as span:
+                span.update_args(
+                    {
+                        PROMPT_TOKENS_KEY: 11,
+                        COMPLETION_TOKENS_KEY: 7,
+                        TOTAL_TOKENS_KEY: 18,
+                    }
+                )
+        df_logger.finalize()
+
+        trace_files = glob.glob(log_file.replace(".pfw", "*.pfw")) + glob.glob(
+            log_file.replace(".pfw", "*.pfw.gz")
+        )
+        assert trace_files, f"No trace files found for {log_file}"
+
+        events = {}
+        for trace_file in trace_files:
+            opener = gzip.open if trace_file.endswith(".gz") else open
+            with opener(trace_file, "rt", errors="ignore") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line or line[0] in "[]":
+                        continue
+                    event = json.loads(line)
+                    if event.get("cat") in {"workflow", "tool", "llm"}:
+                        events[event["cat"]] = event
+
+        assert events["workflow"]["args"][WORKFLOW_ID_KEY] == "workflow-1"
+        assert events["workflow"]["args"][OPERATION_KIND_KEY] == "workflow"
+        assert events["tool"]["args"]["tool_name"] == "list_dir"
+        assert events["tool"]["args"][TRACE_ID_KEY] == "trace-1"
+        assert events["llm"]["args"][MODEL_NAME_KEY] == "test-model"
+        assert events["llm"]["args"][PROMPT_TOKENS_KEY] == 11
+        assert events["llm"]["args"][COMPLETION_TOKENS_KEY] == 7
+        assert events["llm"]["args"][TOTAL_TOKENS_KEY] == 18
+        return True
+    finally:
+        shutil.rmtree(test_base_dir, ignore_errors=True)
 
 
 class TestAgentModule:
@@ -185,8 +267,63 @@ class TestAgentModule:
             }
         )
 
+    def test_agent_context_manager_args_stay_on_returned_span(self):
+        span = tool.call(
+            args={
+                TRACE_ID_KEY: "trace-ctx",
+                WORKFLOW_ID_KEY: "workflow-ctx",
+                OPERATION_KIND_KEY: "tool_call",
+                "tool_name": "list_dir",
+            }
+        )
+
+        if span.profiler._enable:
+            assert span.profiler._arguments_string[TRACE_ID_KEY][1] == "trace-ctx"
+            assert span.profiler._arguments_string[WORKFLOW_ID_KEY][1] == "workflow-ctx"
+            assert span.profiler._arguments_string[OPERATION_KIND_KEY][1] == "tool_call"
+            assert span.profiler._arguments_string["tool_name"][1] == "list_dir"
+            assert TRACE_ID_KEY not in tool.call.profiler._arguments_string
+
+    def test_agent_update_args_mutates_active_span(self):
+        span = llm.call(
+            args={
+                TRACE_ID_KEY: "trace-llm",
+                WORKFLOW_ID_KEY: "workflow-llm",
+                MODEL_NAME_KEY: "test-model",
+            }
+        )
+        span.update_args(
+            {
+                PROMPT_TOKENS_KEY: 11,
+                COMPLETION_TOKENS_KEY: 7,
+                TOTAL_TOKENS_KEY: 18,
+            }
+        )
+
+        if span.profiler._enable:
+            assert span.profiler._arguments_string[TRACE_ID_KEY][1] == "trace-llm"
+            assert span.profiler._arguments_string[WORKFLOW_ID_KEY][1] == "workflow-llm"
+            assert span.profiler._arguments_string[MODEL_NAME_KEY][1] == "test-model"
+            assert span.profiler._arguments_int[PROMPT_TOKENS_KEY][1] == 11
+            assert span.profiler._arguments_int[COMPLETION_TOKENS_KEY][1] == 7
+            assert span.profiler._arguments_int[TOTAL_TOKENS_KEY][1] == 18
+
     def test_names_do_not_collide_with_ai_aliases(self):
         assert ai_data is not agent_data
+
+    def test_agent_trace_emits_context_manager_args(self):
+        run_test_in_spawn_process(
+            run_agent_trace_args_test,
+            {
+                "name": "agent_trace_args",
+                "env": {
+                    "DFTRACER_ENABLE": "1",
+                    "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "1",
+                    "DFTRACER_DISABLE_IO": "1",
+                },
+            },
+        )
 
 
 class TestAgentEnumerations:
