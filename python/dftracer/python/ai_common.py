@@ -572,6 +572,7 @@ class PipelineEvent(StringEnum):
     TRAIN = auto()
     EVALUATE = auto()
     TEST = auto()
+    STEP = auto()
 
 
 class CheckpointEvent(StringEnum):
@@ -775,6 +776,7 @@ class Pipeline(DFTracerAI):
     train: DFTracerAI
     evaluate: DFTracerAI
     test: DFTracerAI
+    step: DFTracerAI
 
     def __init__(
         self,
@@ -799,6 +801,7 @@ class Pipeline(DFTracerAI):
                 "train": PipelineEvent.TRAIN,
                 "evaluate": PipelineEvent.EVALUATE,
                 "test": PipelineEvent.TEST,
+                "step": PipelineEvent.STEP,
             }
         )
 
